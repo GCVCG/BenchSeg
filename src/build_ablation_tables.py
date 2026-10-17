@@ -65,6 +65,67 @@ def masks_table():
     print("wrote tab_masks_ablation.tex")
 
 
+def masks_additional_table():
+    """Body rows of tab:masks_ablation_additional: Precision/F1/IoU/Accuracy per partition (FKit, MTF,
+    N5k, V&F), first-M seeds, mean row + std row per M; best/2nd/3rd per column within each combo."""
+    d = load("results/ablation_spatial_[NMVF]*.csv", skip_mem=True)
+    order, keys = ["FKIT", "MTF", "N5K", "VF"], ["precision", "f1", "iou", "accuracy"]
+    shade = r"\cellcolor{gray!12}"
+    L = []
+    for c, (C, disp) in enumerate([("Y+X2", "YOLO+XMem2"), ("SF+X2", "SegMan-FT+XMem2")]):
+        if c:
+            L.append(r"\midrule")
+        meth = [C if M == 1 else f"{C}_M{M}" for M in (1, 3, 6, 9)]
+        col = {(k, p): [float(d[(m, p)][k]) for m in meth] for k in keys for p in order}
+        for i, (M, m) in enumerate(zip((1, 3, 6, 9), meth)):
+            sh = shade if M in (3, 9) else ""
+            means = [sh + style(float(d[(m, p)][k]), col[(k, p)]) for k in keys for p in order]
+            stds = [sh + f"{float(d[(m, p)][k + '_std']):.2f}" for k in keys for p in order]
+            lead = rf"\multirow{{8}}{{*}}{{{disp}}}" if i == 0 else ""
+            L.append(f"{lead} & {sh}\\multirow[t]{{2}}{{*}}{{{M}}} & " + " & ".join(means) + r" \\")
+            L.append(f" & {sh} & " + " & ".join(stds) + r" \\")
+    open("results/tables/tab_masks_ablation_additional_body.tex", "w").write("\n".join(L) + "\n")
+    print("wrote tab_masks_ablation_additional_body.tex")
+
+
+def temporal_grouped_table():
+    """Body rows of tab:temporal_grouped_method: C_t, FR, dIoU, sigmaIoU per partition (FKit, MTF, N5k,
+    V&F) + Global (mean over partitions; std across partitions), first-M seeds, from the ablation per-frame
+    IoU with the same metric profile as the main temporal table (corrected_minimal)."""
+    import build_temporal_table as bt
+    import temporal_metrics as tm
+    order, keys = ["FKIT", "MTF", "N5K", "VF"], ["continuity", "flicker", "drift", "sigma"]
+    higher = {"continuity"}
+    shade = r"\cellcolor{gray!12}"
+
+    def mark(v, vals, up):
+        s = sorted(set(round(x, 1) for x in vals), reverse=up)
+        r, t = round(v, 1), f"{v:.1f}"
+        return next((f"{w}{{{t}}}" for w, x in zip((r"\textbf", r"\underline", r"\textit"), s) if r == x), t)
+
+    L = []
+    for c, (C, disp) in enumerate([("Y+X2", "YOLO+XMem2"), ("SF+X2", "SegMan-FT+XMem2")]):
+        if c:
+            L.append(r"\midrule")
+        meth = [C if M == 1 else f"{C}_M{M}" for M in (1, 3, 6, 9)]
+        paths = [f"results/ablation_per_frame_iou/{p}/{m}.csv" for p in order for m in meth]
+        rows = {(r["method"], r["partition"]): r for r in bt.build_table(paths, tm.TemporalConfig(), "corrected_minimal")}
+        val = {m: {(k, p): 100 * rows[(m, p)][k] for k in keys for p in order} for m in meth}
+        std = {m: {(k, p): 100 * rows[(m, p)][k + "_std"] for k in keys for p in order} for m in meth}
+        glob_ = {m: {k: np.mean([val[m][(k, p)] for p in order]) for k in keys} for m in meth}
+        gstd = {m: {k: np.std([val[m][(k, p)] for p in order], ddof=1) for k in keys} for m in meth}
+        for i, (M, m) in enumerate(zip((1, 3, 6, 9), meth)):
+            sh = shade if M in (3, 9) else ""
+            means = [sh + mark(val[m][(k, p)], [val[x][(k, p)] for x in meth], k in higher) for k in keys for p in order]
+            means += [sh + mark(glob_[m][k], [glob_[x][k] for x in meth], k in higher) for k in keys]
+            stds = [sh + f"{std[m][(k, p)]:.1f}" for k in keys for p in order] + [sh + f"{gstd[m][k]:.1f}" for k in keys]
+            lead = rf"\multirow{{8}}{{*}}{{{disp}}}" if i == 0 else ""
+            L.append(f"{lead} & {sh}\\multirow[t]{{2}}{{*}}{{{M}}} & " + " & ".join(means) + r" \\")
+            L.append(f" & {sh} & " + " & ".join(stds) + r" \\")
+    open("results/tables/tab_temporal_grouped_method_body.tex", "w").write("\n".join(L) + "\n")
+    print("wrote tab_temporal_grouped_method_body.tex")
+
+
 def memory_table():
     d = load("results/ablation_spatial_mem_*.csv")
     rows = [("4", "FoodMem_mem4"), ("10 (default)", "FoodMem"),
@@ -91,4 +152,6 @@ def memory_table():
 if __name__ == "__main__":
     os.makedirs("results/tables", exist_ok=True)
     masks_table()
+    masks_additional_table()
+    temporal_grouped_table()
     memory_table()
