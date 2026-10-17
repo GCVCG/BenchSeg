@@ -90,7 +90,7 @@ def masks_additional_table():
 
 def temporal_grouped_table():
     """Body rows of tab:temporal_grouped_method: C_t, FR, dIoU, sigmaIoU per partition (FKit, MTF, N5k,
-    V&F) + Global (mean over partitions; std across partitions), first-M seeds, from the ablation per-frame
+    V&F) + Global (mean over partitions; std across the rounded partition values), first-M seeds, from the ablation per-frame
     IoU with the same metric profile as the main temporal table (corrected_minimal)."""
     import build_temporal_table as bt
     import temporal_metrics as tm
@@ -113,7 +113,8 @@ def temporal_grouped_table():
         val = {m: {(k, p): 100 * rows[(m, p)][k] for k in keys for p in order} for m in meth}
         std = {m: {(k, p): 100 * rows[(m, p)][k + "_std"] for k in keys for p in order} for m in meth}
         glob_ = {m: {k: np.mean([val[m][(k, p)] for p in order]) for k in keys} for m in meth}
-        gstd = {m: {k: np.std([val[m][(k, p)] for p in order], ddof=1) for k in keys} for m in meth}
+        # std across the displayed (1-decimal) partition values, as in the main temporal table
+        gstd = {m: {k: np.std([round(val[m][(k, p)], 1) for p in order], ddof=1) for k in keys} for m in meth}
         for i, (M, m) in enumerate(zip((1, 3, 6, 9), meth)):
             sh = shade if M in (3, 9) else ""
             means = [sh + mark(val[m][(k, p)], [val[x][(k, p)] for x in meth], k in higher) for k in keys for p in order]
