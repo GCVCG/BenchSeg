@@ -15,7 +15,12 @@ FRAMES = [122, 311, 506]            # spread views, strong after-correction mask
 RGB_DIR = "data/FoodKit_dataset_reordered/images"
 GT_DIR = "data/FoodKit_dataset_reordered/masks"
 AFTER_DIR = "data/preds/FKIT/FLMM"
-CELL = 220                          # px per cell
+CELL = 660                          # px per cell (3x for print; R3 R1.3 blur fix)
+HDR = CELL // 10                    # header/label band height
+try:
+    FONT = ImageFont.truetype("DejaVuSans.ttf", CELL // 16)
+except OSError:
+    FONT = ImageFont.load_default()
 
 
 def load_rgb(base):
@@ -38,8 +43,8 @@ def overlay(rgb, mask, color):
 def cell(img, label):
     img = img.resize((CELL, CELL))
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, CELL - 1, 16], fill=(0, 0, 0))
-    d.text((3, 3), label, fill=(255, 255, 255))
+    d.rectangle([0, 0, CELL - 1, HDR], fill=(0, 0, 0))
+    d.text((HDR // 4, HDR // 6), label, fill=(255, 255, 255), font=FONT)
     return img
 
 
@@ -53,10 +58,10 @@ def mask_for(d, base):
 
 def main():
     cols = ["RGB", "Ground truth", "FoodLMM (before)", "FoodLMM (after)"]
-    grid = Image.new("RGB", (CELL * 4, CELL * len(FRAMES) + 18), (255, 255, 255))
+    grid = Image.new("RGB", (CELL * 4, CELL * len(FRAMES) + HDR), (255, 255, 255))
     d = ImageDraw.Draw(grid)
     for j, c in enumerate(cols):
-        d.text((j * CELL + 4, 4), c, fill=(0, 0, 0))
+        d.text((j * CELL + HDR // 4, HDR // 6), c, fill=(0, 0, 0), font=FONT)
     for i, fr in enumerate(FRAMES):
         base = f"{SCENE}_{fr:03d}"
         rgb = load_rgb(base)
@@ -69,7 +74,7 @@ def main():
                cell(overlay(rgb, before, (220, 40, 40)), "before ~0.9% mAP"),
                cell(overlay(rgb, after, (40, 90, 230)), "after")]
         for j, im in enumerate(row):
-            grid.paste(im, (j * CELL, 18 + i * CELL))
+            grid.paste(im, (j * CELL, HDR + i * CELL))
     out = "results/fig_foodlmm_panel.png"
     grid.save(out)
     print(f"wrote {out}")

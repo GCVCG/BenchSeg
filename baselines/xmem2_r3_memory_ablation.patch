@@ -1,0 +1,43 @@
+# R3 (ESWA R1.4) patch to baselines/XMem2 (cluster copy): --original_memory_mechanism and --print_fps
+# for process_video.py; the original mechanism keeps the FIRST SEED (not frame 0) permanent.
+# Apply inside baselines/XMem2:  patch -p1 < xmem2_r3_memory_ablation.patch
+--- a/process_video.py
++++ b/process_video.py
+@@ -14,6 +14,9 @@
+     parser.add_argument('--max_mid_term_frames', type=int, default=None)
+     parser.add_argument('--mem_every', type=int, default=None)
+     parser.add_argument('--min_mid_term_frames', type=int, default=None)
++    # R3 ablation: XMem's original memory (only the first seed is permanent; later seeds go to working memory)
++    parser.add_argument('--original_memory_mechanism', action='store_true')
++    parser.add_argument('--print_fps', action='store_true')  # R3 timing: model-only processing time
+ 
+     args = parser.parse_args()
+ 
+@@ -39,4 +42,6 @@
+     p_out = Path(args.output)
+     p_out.mkdir(parents=True, exist_ok=True)
+     run_on_video(args.video, args.masks, args.output, frames_with_masks,
+-                 overwrite_config=(ovr or None))
++                 overwrite_config=(ovr or None),
++                 original_memory_mechanism=args.original_memory_mechanism,
++                 print_fps=args.print_fps)
+--- a/inference/run_on_video.py
++++ b/inference/run_on_video.py
+@@ -58,7 +58,7 @@
+ 
+     if original_memory_mechanism:
+         # only the first frame goes into permanent memory originally
+-        frames_to_put_in_permanent_memory = [0]
++        frames_to_put_in_permanent_memory = [min(frames_with_masks)]  # first seed (need not be frame 0)
+         # the rest are going to be processed later
+     else:
+         # in our modification, all frames with provided masks go into permanent memory
+@@ -97,7 +97,7 @@
+ 
+                 if original_memory_mechanism:
+                     # we only ignore the first mask, since it's already in the permanent memory
+-                    do_not_add_mask_to_memory = (ti == 0)
++                    do_not_add_mask_to_memory = (ti == min(frames_with_masks))
+                 else:
+                     # we ignore all frames with masks, since they are already preloaded in the permanent memory
+                     do_not_add_mask_to_memory = msk is not None

@@ -11,7 +11,7 @@ For each scene (an ordered frame sequence), it:
 Runs inside the python310 SIF; calls the tracker's own venv python via subprocess
 (same container, so the venv resolves).
 """
-import argparse, glob, os, re, shutil, subprocess, sys
+import argparse, glob, os, re, shutil, signal, subprocess, sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -25,6 +25,25 @@ IMG_EXTS = (".png", ".jpg", ".jpeg")
 
 def list_images(d):
     return sorted(f for f in os.listdir(d) if f.lower().endswith(IMG_EXTS))
+
+
+def run_tracker(cmd, cwd, timeout, odir, tries=3):
+    """XMem2 intermittently deadlocks (no CPU, no progress). With a timeout, kill the whole process
+    group (its image-saver child too) and retry on a clean output dir. Returns (returncode, stdout, stderr).
+    Observed cause: an image-saver worker dies and the main process waits on it forever."""
+    for attempt in range(1, tries + 1):
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             start_new_session=True)
+        try:
+            out, err = p.communicate(timeout=timeout)
+            return p.returncode, out, err
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            print(f"  tracker hung for {timeout:.0f}s (attempt {attempt}/{tries}) -> retry", flush=True)
+            shutil.rmtree(odir, ignore_errors=True)
+            os.makedirs(odir)
+    return -1, "", "tracker hung on every attempt"
 
 
 def main():
@@ -43,9 +62,13 @@ def main():
     ap.add_argument("--xmem_max_mid", type=int, default=None, help="XMem2 max_mid_term_frames (working memory size); None=default 10")
     ap.add_argument("--xmem_mem_every", type=int, default=None, help="XMem2 mem_every (memory update interval); None=default 5")
     ap.add_argument("--xmem_min_mid", type=int, default=None, help="XMem2 min_mid_term_frames; None=default 5 (must be < max_mid)")
+    ap.add_argument("--xmem_original_memory", action="store_true",
+                    help="XMem's original memory: only the first seed is permanent, later seeds enter working memory")
     ap.add_argument("--sam2_ckpt", default="")
     ap.add_argument("--sam2_cfg", default="configs/sam2.1/sam2.1_hiera_l.yaml")
     ap.add_argument("--tmp_root", default="data/_track_tmp")
+    ap.add_argument("--tracker_timeout_per_frame", type=float, default=0,
+                    help="per-scene tracker timeout = 300s + this*frames, then kill+retry (0 = no timeout)")
     a = ap.parse_args()
 
     os.makedirs(a.out_dir, exist_ok=True)
@@ -117,6 +140,8 @@ def main():
                 cmd += ["--mem_every", str(a.xmem_mem_every)]
             if a.xmem_min_mid is not None:
                 cmd += ["--min_mid_term_frames", str(a.xmem_min_mid)]
+            if a.xmem_original_memory:
+                cmd += ["--original_memory_mechanism"]
         elif a.tracker == "sam2":
             cmd = [a.venv_py, os.path.abspath(os.path.join(os.path.dirname(__file__), "sam2_track_from_mask.py")),
                    "--video_path", os.path.abspath(fdir), "--mask_dir", os.path.abspath(sdir),
@@ -127,9 +152,10 @@ def main():
                    "--video_path", os.path.abspath(fdir), "--mask_dir", os.path.abspath(sdir),
                    "--out_dir", os.path.abspath(odir),
                    "--n_masks", "1", "--frame_idx", str(first_seed_idx or 0)]
-        r = subprocess.run(cmd, cwd=a.tracker_dir, capture_output=True, text=True)
-        if r.returncode != 0:
-            print(f"scene {scene}: tracker FAILED -> all-empty\n{r.stderr[-800:]}", flush=True)
+        timeout = 300 + a.tracker_timeout_per_frame * len(frames) if a.tracker_timeout_per_frame > 0 else None
+        rc, _, err = run_tracker(cmd, a.tracker_dir, timeout, odir)
+        if rc != 0:
+            print(f"scene {scene}: tracker FAILED -> all-empty\n{err[-800:]}", flush=True)
             fill_empty()
             shutil.rmtree(tmp, ignore_errors=True)
             continue

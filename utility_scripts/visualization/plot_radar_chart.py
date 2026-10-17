@@ -89,6 +89,8 @@ def parse_args() -> argparse.Namespace:
         help="Figure size in inches.",
     )
     parser.add_argument("--dpi", type=int, default=300, help="Output resolution in DPI. Default: %(default)s")
+    parser.add_argument("--legend-ncol", type=int, default=1,
+                        help="1 = legend to the right (default); >1 = legend below the plot in that many columns.")
     return parser.parse_args()
 
 
@@ -397,11 +399,13 @@ def main() -> int:
         ax.set_title(args.title, fontsize=16, pad=20)
 
     handles, labels = ax.get_legend_handles_labels()
+    below = args.legend_ncol > 1
     legend = ax.legend(
         handles,
         labels,
-        loc="best",
-        bbox_to_anchor=(1.1, 1.0),
+        loc="upper center" if below else "best",
+        bbox_to_anchor=(0.5, -0.08) if below else (1.1, 1.0),
+        ncol=args.legend_ncol,
         fontsize=9,
         borderaxespad=0.0,
         handlelength=3.0,
